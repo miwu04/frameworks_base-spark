@@ -49,6 +49,7 @@ import android.os.UserHandle;
 import android.os.VibrationAttributes;
 import android.os.VibrationEffect;
 import android.provider.Settings;
+import android.util.BoostFramework;
 import android.util.Log;
 import android.util.RotationUtils;
 import android.view.LayoutInflater;
@@ -185,6 +186,14 @@ public class UdfpsController implements DozeReceiver {
     private final SecureSettings mSecureSettings;
     private boolean mScreenOffFod;
     private UdfpsAnimation mUdfpsAnimation;
+
+    private boolean mFrameworkDimming;
+    private int[][] mBrightnessAlphaArray;
+
+    // Boostframework for UDFPS
+    private BoostFramework mPerf = null;
+    private boolean mIsPerfLockAcquired = false;
+    private static final int BOOST_DURATION_TIMEOUT = 2000;
 
     @VisibleForTesting
     public static final VibrationAttributes UDFPS_VIBRATION_ATTRIBUTES =
@@ -712,6 +721,7 @@ public class UdfpsController implements DozeReceiver {
         udfpsShell.setUdfpsOverlayController(mUdfpsOverlayController);
         mUdfpsVendorCode = mContext.getResources().getInteger(R.integer.config_udfpsVendorCode);
         mAmbientDisplayConfiguration = new AmbientDisplayConfiguration(mContext);
+        mPerf = new BoostFramework();
         mSecureSettings = secureSettings;
         updateScreenOffFodState();
         mSecureSettings.registerContentObserver(Settings.Secure.SCREEN_OFF_UDFPS_ENABLED,
@@ -805,6 +815,13 @@ public class UdfpsController implements DozeReceiver {
             mOrientationListener.enable();
         } else {
             Log.v(TAG, "showUdfpsOverlay | the overlay is already showing");
+        }
+
+        if (mPerf != null && !mIsPerfLockAcquired) {
+            mPerf.perfHint(BoostFramework.VENDOR_HINT_FIRST_LAUNCH_BOOST,
+                    null,
+                    BOOST_DURATION_TIMEOUT);
+            mIsPerfLockAcquired = true;
         }
     }
 
@@ -1018,6 +1035,56 @@ public class UdfpsController implements DozeReceiver {
             mCancelAodTimeoutAction = null;
         }
         mIsAodInterruptActive = false;
+        updateViewDimAmount(false);
+    }
+
+    private static int interpolate(int x, int xa, int xb, int ya, int yb) {
+        return ya - (ya - yb) * (x - xa) / (xb - xa);
+    }
+
+    private void updateViewDimAmount(boolean pressed) {
+        if (mFrameworkDimming) {
+            if (pressed) {
+                int curBrightness = Settings.System.getInt(mContext.getContentResolver(),
+                        Settings.System.SCREEN_BRIGHTNESS, 100);
+                int i, dimAmount;
+                for (i = 0; i < mBrightnessAlphaArray.length; i++) {
+                    if (mBrightnessAlphaArray[i][0] >= curBrightness) break;
+                }
+                if (i == 0) {
+                    dimAmount = mBrightnessAlphaArray[i][1];
+                } else if (i == mBrightnessAlphaArray.length) {
+                    dimAmount = mBrightnessAlphaArray[i-1][1];
+                } else {
+                    dimAmount = interpolate(curBrightness,
+                            mBrightnessAlphaArray[i][0], mBrightnessAlphaArray[i-1][0],
+                            mBrightnessAlphaArray[i][1], mBrightnessAlphaArray[i-1][1]);
+                }
+                // Call the function in UdfpsOverlayController with dimAmount
+                mOverlay.updateDimAmount(dimAmount / 255.0f);
+            } else {
+                // Call the function in UdfpsOverlayController
+                mOverlay.updateDimAmount(0.0f);
+            }
+        }
+    }
+
+    private void parseBrightnessAlphaArray() {
+        mFrameworkDimming = mContext.getResources().getBoolean(R.bool.config_udfpsFrameworkDimming);
+        if (mFrameworkDimming) {
+            String[] array = mContext.getResources().getStringArray(
+                    R.array.config_udfpsDimmingBrightnessAlphaArray);
+            mBrightnessAlphaArray = new int[array.length][2];
+            for (int i = 0; i < array.length; i++) {
+                String[] s = array[i].split(",");
+                mBrightnessAlphaArray[i][0] = Integer.parseInt(s[0]);
+                mBrightnessAlphaArray[i][1] = Integer.parseInt(s[1]);
+            }
+        }
+       if (mPerf != null && mIsPerfLockAcquired) {
+            mPerf.perfLockRelease();
+            mIsPerfLockAcquired = false;
+        }
     }
 
     /**
