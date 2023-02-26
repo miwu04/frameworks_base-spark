@@ -50,7 +50,6 @@ import static android.view.WindowManager.TRANSIT_TO_FRONT;
 
 import static com.android.internal.protolog.ProtoLogGroup.WM_DEBUG_STATES;
 import static com.android.internal.protolog.ProtoLogGroup.WM_DEBUG_TASKS;
-import static com.android.server.wm.ActivityRecord.State.DESTROYED;
 import static com.android.server.wm.ActivityRecord.State.PAUSED;
 import static com.android.server.wm.ActivityRecord.State.PAUSING;
 import static com.android.server.wm.ActivityRecord.State.RESTARTING_PROCESS;
@@ -110,10 +109,8 @@ import android.content.pm.ResolveInfo;
 import android.content.pm.UserInfo;
 import android.content.res.Configuration;
 import android.graphics.Rect;
-import android.hardware.power.Boost;
 import android.hardware.SensorPrivacyManager;
 import android.hardware.SensorPrivacyManagerInternal;
-import android.os.AsyncTask;
 import android.os.Binder;
 import android.os.Build;
 import android.os.Bundle;
@@ -123,11 +120,8 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
 import android.os.PowerManager;
-import android.os.PowerManagerInternal;
-import android.os.Process;
 import android.os.RemoteException;
 import android.os.SystemClock;
-import android.os.SystemProperties;
 import android.os.Trace;
 import android.os.UserHandle;
 import android.os.UserManager;
@@ -143,7 +137,6 @@ import android.view.Display;
 import com.android.internal.R;
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.app.procstats.ProcessStats;
 import com.android.internal.content.ReferrerIntent;
 import com.android.internal.protolog.common.ProtoLog;
 import com.android.internal.util.ArrayUtils;
@@ -158,7 +151,6 @@ import com.android.server.wm.ActivityMetricsLogger.LaunchingState;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
-import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -185,8 +177,6 @@ public class ActivityTaskSupervisor implements RecentTasks.Callbacks {
 
     // How long we can hold the launch wake lock before giving up.
     private static final int LAUNCH_TIMEOUT = 10 * 1000 * Build.HW_TIMEOUT_MULTIPLIER;
-    
-    PowerManagerInternal mLocalPowerManager;
 
     /** How long we wait until giving up on the activity telling us it released the top state. */
     private static final int TOP_RESUMED_STATE_LOSS_TIMEOUT = 500;
@@ -247,11 +237,8 @@ public class ActivityTaskSupervisor implements RecentTasks.Callbacks {
     /** The number of distinct task ids that can be assigned to the tasks of a single user */
     private static final int MAX_TASK_IDS_PER_USER = UserHandle.PER_USER_RANGE;
 
-    private static final int POWER_BOOST_TIMEOUT_MS = Integer.parseInt(
-            SystemProperties.get("persist.sys.powerhal.interaction.max", "200"));
-
     final ActivityTaskManagerService mService;
-    public RootWindowContainer mRootWindowContainer;
+    RootWindowContainer mRootWindowContainer;
 
     /** The historial list of recent tasks including inactive tasks */
     RecentTasks mRecentTasks;
@@ -462,7 +449,6 @@ public class ActivityTaskSupervisor implements RecentTasks.Callbacks {
         mLaunchParamsPersister = new LaunchParamsPersister(mPersisterQueue, this);
         mLaunchParamsController = new LaunchParamsController(mService, mLaunchParamsPersister);
         mLaunchParamsController.registerDefaultModifiers(this);
-        mLocalPowerManager = LocalServices.getService(PowerManagerInternal.class);
     }
 
     void onSystemReady() {
@@ -771,7 +757,7 @@ public class ActivityTaskSupervisor implements RecentTasks.Callbacks {
         }
     }
 
-    public ActivityInfo resolveActivity(Intent intent, String resolvedType, int startFlags,
+    ActivityInfo resolveActivity(Intent intent, String resolvedType, int startFlags,
             ProfilerInfo profilerInfo, int userId, int filterCallingUid) {
         final ResolveInfo rInfo = resolveIntent(intent, resolvedType, userId, 0, filterCallingUid);
         return resolveActivity(intent, rInfo, startFlags, profilerInfo);
@@ -1057,9 +1043,6 @@ public class ActivityTaskSupervisor implements RecentTasks.Callbacks {
         boolean knownToBeDead = false;
         if (wpc != null && wpc.hasThread()) {
             try {
-            	if (mLocalPowerManager != null) {
-            	mLocalPowerManager.setPowerBoost(Boost.INTERACTION, POWER_BOOST_TIMEOUT_MS);
-            	}
                 realStartActivityLocked(r, wpc, andResume, checkConfig);
                 return;
             } catch (RemoteException e) {
@@ -1443,18 +1426,6 @@ public class ActivityTaskSupervisor implements RecentTasks.Callbacks {
     void findTaskToMoveToFront(Task task, int flags, ActivityOptions options, String reason,
             boolean forceNonResizeable) {
         Task currentRootTask = task.getRootTask();
-        
-        Task focusedStack = mRootWindowContainer.getTopDisplayFocusedRootTask();
-        ActivityRecord top_activity = focusedStack != null ? focusedStack.getTopNonFinishingActivity() : null;
-
-        //top_activity = task.stack.topRunningActivityLocked();
-        /* App is launching from recent apps and it's a new process */
-        if((top_activity != null) && (top_activity.getState() == DESTROYED)) {
-            if (mLocalPowerManager != null) {
-               mLocalPowerManager.setPowerBoost(Boost.INTERACTION, POWER_BOOST_TIMEOUT_MS);
-            }
-        }
-
         if (currentRootTask == null) {
             Slog.e(TAG, "findTaskToMoveToFront: can't move task="
                     + task + " to front. Root task is null");
@@ -1891,10 +1862,6 @@ public class ActivityTaskSupervisor implements RecentTasks.Callbacks {
         checkReadyForSleepLocked(false /* allowDelay */);
 
         return timedout;
-    }
-
-    public ActivityRecord getTopResumedActivity() {
-        return mTopResumedActivity;
     }
 
     void comeOutOfSleepIfNeededLocked() {
@@ -2757,5 +2724,4 @@ public class ActivityTaskSupervisor implements RecentTasks.Callbacks {
             mResult.dump(pw, prefix + "    ");
         }
     }
-
 }

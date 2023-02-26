@@ -36,7 +36,6 @@ import android.graphics.Rect;
 import android.hardware.power.Boost;
 import android.os.Handler;
 import android.os.PowerManagerInternal;
-import android.os.SystemProperties;
 import android.os.Trace;
 import android.util.ArrayMap;
 import android.util.Log;
@@ -88,8 +87,6 @@ class SurfaceAnimationRunner {
     private final AnimatorFactory mAnimatorFactory;
     private final PowerManagerInternal mPowerManagerInternal;
     private boolean mApplyScheduled;
-    private final int POWER_BOOST_TIMEOUT_MS = Integer.parseInt(
-            SystemProperties.get("persist.sys.powerhal.interaction.max", "200"));
 
     // Executor to perform the edge extension.
     // With two threads because in practice we will want to extend two surfaces in one animation,
@@ -346,7 +343,7 @@ class SurfaceAnimationRunner {
             }
             startPendingAnimationsLocked();
         }
-        mPowerManagerInternal.setPowerBoost(Boost.INTERACTION, POWER_BOOST_TIMEOUT_MS);
+        mPowerManagerInternal.setPowerBoost(Boost.INTERACTION, 0);
     }
 
     private void scheduleApplyTransaction() {

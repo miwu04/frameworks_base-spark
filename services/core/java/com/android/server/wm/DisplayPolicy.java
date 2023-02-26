@@ -553,7 +553,7 @@ public class DisplayPolicy {
                     public void onVerticalFling(int duration) {
                         if (mService.mPowerManagerInternal != null) {
                             mService.mPowerManagerInternal.setPowerBoost(
-                                    Boost.INTERACTION, duration + 160);
+                                    Boost.INTERACTION, duration + 320);
                         }
                     }
 
@@ -566,11 +566,11 @@ public class DisplayPolicy {
                     }
 
                     @Override
-                    public void onScroll(boolean started, int duration) {
+                    public void onScroll(boolean started) {
                     	if (started) {
                           if (mService.mPowerManagerInternal != null) {
                               mService.mPowerManagerInternal.setPowerBoost(
-                                     Boost.INTERACTION, duration + 160);
+                                     Boost.DISPLAY_UPDATE_IMMINENT, 500);
                          }
                         }
                     }
